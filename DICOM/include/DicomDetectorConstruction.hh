@@ -41,6 +41,7 @@
 
 class G4Material;
 class G4Box;
+class G4Tubs;
 class G4LogicalVolume;
 class DicomPhantomZSliceMerged;
 
@@ -110,10 +111,16 @@ protected:
     G4Box* fWorld_solid;
     G4LogicalVolume* fWorld_logic;
     G4VPhysicalVolume* fWorld_phys;
-
+	
+	// Container
     G4Box* fContainer_solid;
     G4LogicalVolume* fContainer_logic;
     G4VPhysicalVolume* fContainer_phys;
+    
+    // Cylinder ... 
+    G4Tubs* solidCylinder;
+    G4LogicalVolume* logicalCylinder;
+    G4VPhysicalVolume* physicalCylinder;
 
     G4int fNoFiles; // number of DICOM files
     std::vector<G4Material*> fOriginalMaterials;  // list of original materials
