@@ -32,6 +32,7 @@
 #include "globals.hh"
 
 #include "G4Box.hh"
+#include "G4Tubs.hh"
 #include "G4LogicalVolume.hh"
 #include "G4VPhysicalVolume.hh"
 #include "G4PVPlacement.hh"
@@ -40,7 +41,7 @@
 #include "G4UIcommand.hh"
 #include "G4PhysicalConstants.hh"
 #include "G4NistManager.hh"
-// #include "G4SystemOfUnits.hh"
+#include "G4SystemOfUnits.hh"
 #include "CLHEP/Units/SystemOfUnits.h"
 
 #include "DicomDetectorConstruction.hh"
@@ -52,6 +53,9 @@
 #include "DicomFileMgr.hh"
 #endif
 #include "G4VisAttributes.hh"
+
+//Rotation
+#include "G4RotationMatrix.hh"
 
 using CLHEP::m;
 using CLHEP::cm3;
@@ -134,6 +138,8 @@ G4VPhysicalVolume* DicomDetectorConstruction::Construct()
 #endif
     
     ConstructPhantom();
+    
+     fWorld_logic->SetVisAttributes (G4VisAttributes::Invisible);
   }
     return fWorld_phys;
 }
@@ -456,93 +462,6 @@ void DicomDetectorConstruction::InitialisationOfMaterials()
 }
 
 //....oooOO0OOooo........oooOO0OOooo........oooOO0OOooo....
-void DicomDetectorConstruction::ReadPhantomDataNew()
-{
-#ifdef G4_DCMTK
-  G4String fileName = DicomFileMgr::GetInstance()->GetFileOutName();
-  
-  std::ifstream fin(fileName);
-  std::vector<G4String> wl;
-  G4int nMaterials;
-  fin >> nMaterials;
-  G4String mateName;
-  G4int nmate;
-  for( G4int ii = 0; ii < nMaterials; ii++ ){
-    fin >> nmate;
-    fin >> mateName;
-    if( mateName[0] == '"' && mateName[mateName.length()-1] == '"' ) {
-      mateName = mateName.substr(1,mateName.length()-2);
-    }
-    G4cout << "GmReadPhantomG4Geometry::ReadPhantomData reading nmate " 
-           << ii << " = " << nmate 
-           << " mate " << mateName << G4endl;
-    if( ii != nmate ) 
-    G4Exception("GmReadPhantomG4Geometry::ReadPhantomData",
-                "Wrong argument",
-                FatalErrorInArgument,
-                "Material number should be in increasing order:wrong material number");
-
-    G4Material* mate = 0;
-    const G4MaterialTable* matTab = G4Material::GetMaterialTable();
-    std::vector<G4Material*>::const_iterator matite;
-    for( matite = matTab->begin(); matite != matTab->end(); ++matite ) {
-      if( (*matite)->GetName() == mateName ) {
-        mate = *matite;
-      }
-    }
-    if( mate == 0 ) {
-      mate = G4NistManager::Instance()->FindOrBuildMaterial(mateName);
-    }
-    if( !mate ) G4Exception("GmReadPhantomG4Geometry::ReadPhantomData",
-                            "Wrong argument",
-                            FatalErrorInArgument,
-                            ("Material not found" + mateName).c_str());
-    thePhantomMaterialsOriginal[nmate] = mate;
-  }
-
-  fin >> fNVoxelX >> fNVoxelY >> fNVoxelZ;
-  G4cout << "GmReadPhantomG4Geometry::ReadPhantomData fNVoxel X/Y/Z " 
-         << fNVoxelX << " " 
-         << fNVoxelY << " " << fNVoxelZ << G4endl;
-  fin >> fMinX >> fMaxX;
-  fin >> fMinY >> fMaxY;
-  fin >> fMinZ >> fMaxZ;
-  fVoxelHalfDimX = (fMaxX-fMinX)/fNVoxelX/2.;
-  fVoxelHalfDimY = (fMaxY-fMinY)/fNVoxelY/2.;
-  fVoxelHalfDimZ = (fMaxZ-fMinZ)/fNVoxelZ/2.;
-#ifdef G4VERBOSE
-  G4cout << " Extension in X " << fMinX << " " << fMaxX << G4endl
-         << " Extension in Y " << fMinY << " " << fMaxY << G4endl
-         << " Extension in Z " << fMinZ << " " << fMaxZ << G4endl;
-#endif
-
-  fMateIDs = new size_t[fNVoxelX*fNVoxelY*fNVoxelZ];
-  for( G4int iz = 0; iz < fNVoxelZ; iz++ ) {
-    for( G4int iy = 0; iy < fNVoxelY; iy++ ) {
-      for( G4int ix = 0; ix < fNVoxelX; ix++ ) {
-        G4int mateID;
-        fin >> mateID; 
-        G4int nnew = ix + (iy)*fNVoxelX + (iz)*fNVoxelX*fNVoxelY;
-        if( mateID < 0 || mateID >= nMaterials ) {
-          G4Exception("GmReadPhantomG4Geometry::ReadPhantomData",
-                      "Wrong index in phantom file",
-                      FatalException,
-                      G4String("It should be between 0 and "
-                              + G4UIcommand::ConvertToString(nMaterials-1) 
-                              + ", while it is " 
-                              + G4UIcommand::ConvertToString(mateID)).c_str());
-        }
-        fMateIDs[nnew] = mateID;
-      }
-    }
-  }
-
-  ReadVoxelDensities( fin );
-
-  fin.close();
-#endif
-
-}
 void DicomDetectorConstruction::ReadVoxelDensities( std::ifstream& fin )
 {
   G4String stemp;
@@ -866,70 +785,49 @@ void DicomDetectorConstruction::ConstructPhantomContainer()
                          "phantomContainer",
                          0, 0, 0 );
   //--- Place it on the world
-  G4double fOffsetX = (fZSliceHeaderMerged->GetMaxX() + 
-                       fZSliceHeaderMerged->GetMinX() ) /2.;
-  G4double fOffsetY = (fZSliceHeaderMerged->GetMaxY() + 
-                       fZSliceHeaderMerged->GetMinY() ) /2.;
-  G4double fOffsetZ = (fZSliceHeaderMerged->GetMaxZ() + 
-                       fZSliceHeaderMerged->GetMinZ() ) /2.;
+  G4double fOffsetX = (fZSliceHeaderMerged->GetMaxX() + fZSliceHeaderMerged->GetMinX() ) /2.;
+  G4double fOffsetY = (fZSliceHeaderMerged->GetMaxY() + fZSliceHeaderMerged->GetMinY() ) /2.;
+  G4double fOffsetZ = (fZSliceHeaderMerged->GetMaxZ() + fZSliceHeaderMerged->GetMinZ() ) /2.;
+  
+  	//Rotation
+	G4RotationMatrix* RotationM = new G4RotationMatrix();
+	RotationM->rotateX(90.*deg);
+	RotationM->rotateY(0.*deg);
+	RotationM->rotateZ(0.*deg); 
+	
   G4ThreeVector posCentreVoxels(fOffsetX,fOffsetY,fOffsetZ);
 #ifdef G4VERBOSE
   G4cout << " placing voxel container volume at " << posCentreVoxels << G4endl;
 #endif
   fContainer_phys =
-    new G4PVPlacement(0,  // rotation
+    new G4PVPlacement(RotationM,  // rotation
                       posCentreVoxels,
                       fContainer_logic,     // The logic volume
                       "phantomContainer",  // Name
                       fWorld_logic,  // Mother
                       false,           // No op. bool.
                       1);              // Copy number
+                      
+   //Cylinder Surrounds the voxel container
+	 
+  G4Tubs* solidCylinder = new G4Tubs("solidCylinder", 25.0*cm, 25.1*cm, 100/2*cm, 0.*deg, 360.*deg);
+  
+  logicalCylinder = new G4LogicalVolume(solidCylinder, fAir, "logicalCylinder");   // its solid, defaultMaterial, name
+
+  physicalCylinder =
+                                 new G4PVPlacement(0,			               // no rotation
+  							     G4ThreeVector(0,0,0.*cm),                    // at (0,0,0)
+							     "physicalCylinder",                         // its name
+							     logicalCylinder,                           // its logical volume
+							     fWorld_phys,	                           // its mother  volume
+							     false,		                              // not used
+							     0);		                             // copy number               
   
   //fContainer_logic->SetVisAttributes(new G4VisAttributes(G4Colour(1.,0.,0.)));
 }
 
 //....oooOO0OOooo........oooOO0OOooo........oooOO0OOooo........oooOO0OOooo......
-void DicomDetectorConstruction::ConstructPhantomContainerNew()
-{
-#ifdef G4_DCMTK
-  //---- Extract number of voxels and voxel dimensions
-#ifdef G4VERBOSE
-  G4cout << " fNVoxelX " << fNVoxelX << " fVoxelHalfDimX " << fVoxelHalfDimX 
-         <<G4endl;
-  G4cout << " fNVoxelY " << fNVoxelY << " fVoxelHalfDimY " << fVoxelHalfDimY 
-         <<G4endl;
-  G4cout << " fNVoxelZ " << fNVoxelZ << " fVoxelHalfDimZ " << fVoxelHalfDimZ 
-         <<G4endl;
-  G4cout << " totalPixels " << fNVoxelX*fNVoxelY*fNVoxelZ <<  G4endl;
-#endif
-  
-  //----- Define the volume that contains all the voxels
-  fContainer_solid = new G4Box("phantomContainer",fNVoxelX*fVoxelHalfDimX,
-                               fNVoxelY*fVoxelHalfDimY,
-                               fNVoxelZ*fVoxelHalfDimZ);
-  fContainer_logic =
-    new G4LogicalVolume( fContainer_solid,
-   //the material is not important, it will be fully filled by the voxels
-                         fMaterials[0],
-                         "phantomContainer",
-                         0, 0, 0 );
 
-  G4ThreeVector posCentreVoxels((fMinX+fMaxX)/2.,(fMinY+fMaxY)/2.,(fMinZ+fMaxZ)/2.);
-#ifdef G4VERBOSE
-  G4cout << " placing voxel container volume at " << posCentreVoxels << G4endl;
-#endif
-  fContainer_phys =
-    new G4PVPlacement(0,  // rotation
-                      posCentreVoxels,
-                      fContainer_logic,     // The logic volume
-                      "phantomContainer",  // Name
-                      fWorld_logic,  // Mother
-                      false,           // No op. bool.
-                      1);              // Copy number
-  
-  //fContainer_logic->SetVisAttributes(new G4VisAttributes(G4Colour(1.,0.,0.)));
-#endif
-}
 
 #include "G4SDManager.hh"
 #include "G4MultiFunctionalDetector.hh"
