@@ -69,7 +69,7 @@ void DicomActionInitialization::Build() const
 	
     SetUserAction(new DicomPrimaryGeneratorAction);
     SetUserAction(new DicomRunAction(histo));
-    SetUserAction(new DicomEventAction);
+    SetUserAction(new DicomEventAction(histo));
     
 }
 
